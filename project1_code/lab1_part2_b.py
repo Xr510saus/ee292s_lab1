@@ -12,16 +12,11 @@ g = 9.81 # gravity, m/s^2
 def complimentary_filter(dt, oldAngle, accelTilt, gyroTilt, alpha=0.2):
     phi = 0 #roll
     pitch = 0 #theta
-    yaw = 0 # poseidon thing psi?
+    yaw = 0 # psi
 
     return accelTilt*alpha + (1-alpha)*(oldAngle + gyroTilt)
-    #TODO: verify gyroTilt
 
-def kalman_1D():
-    pass
-
-
-### calculate tilt angle
+### calculate tilt angle using acceleration
 def calc_accel_tilt(imu):
     x = imu[0]
     y = imu[1]
@@ -73,21 +68,23 @@ kf.R = np.array([[ measVar ]])          # Variance of measurement
 kf.B = np.array([0., 0., 0.])
 
 # Utility arrays to save off Kalman state over time
-ts=[]
-xs=[]
-vxs=[]
-axs=[]
+ts=[] # time
+xs=[] # position state
+vxs=[] # velocity state
+axs=[] # acceleration state
 zs = [] # sensor output
-kgs=[]
+kgs=[] # kalman gains
 
 ay = []
 print("Calibrating...get ready")
 cal_time = 2 # seconds for calibration
+# find average at rest for bias to subtract
 for x in range(int(cal_time / dt)):
-    ay.append(Accel[0] / 16384)
+    theta = calc_accel_tilt()
+    ay.append((Accel[0] / 16384 * g)) # + g * np.sin(theta)) * np.cos(theta)) # convert IMU data to g's and then m/s^2 w/gravity compensation
 ay = np.array(ay)
 bias = np.mean(ay)
-print(f'Bias={bias} g')
+print(f'Bias={bias} m/s^2')
 print("STARTING LOGGING")
 
 

@@ -3,6 +3,7 @@ import numpy as np
 import math
 import time
 from filterpy.kalman import KalmanFilter
+from filterpy.common import Q_discrete_white_noise
 import pandas as pd
 
 from ma_filter import maf
@@ -14,17 +15,17 @@ g = 9.81 # gravity, m/s^2
 def complimentary_filter(dt, oldAngle, accelTilt, gyroTilt, alpha=0.2):
     phi = 0 #roll
     pitch = 0 #theta
-    yaw = 0 # poseidon thing psi?
+    yaw = 0 # psi
 
     return accelTilt*alpha + (1-alpha)*(oldAngle + gyroTilt)
 
 
-### calculate tilt angle
+### calculate tilt angle using acceleration
 def calc_accel_tilt():
     x = Accel[0]
     y = Accel[1]
     z = Accel[2]
-    return math.atan2(math.sqrt(x**2 + y**2), z) * 180/math.pi
+    return math.atan2(math.sqrt(x**2 + y**2), z) * 180/math.pi # calculate angle of combined xy magnitude
 
 
 icm20948=ICM20948() # instatiate IMU object
@@ -33,7 +34,7 @@ gyroXangle = 0
 gyroYangle = 0
 gyroZangle = 0
 
-kf = KalmanFilter(dim_x=3,dim_z=1)      # state vector is [x v], v=xdot=velocity
+kf = KalmanFilter(dim_x=3,dim_z=1)      # state vector is [x v a], position, velocity, acceleration
 
 # state matrix - Kinematics modeling
 kf.F = np.array([[1., dt, 0.5*dt*dt],       # pos_new = old_pos + dt*vel + 1/2*accel*dt^2
@@ -48,25 +49,29 @@ kf.P = np.array([[ 0.05,  0.,  0.],
 
 kf.Q = np.full((3,3), 10.)
 
+## filterpy generated Q_white_noise matrix
+## Q_discrete_white_noise(dim=3, dt=dt, var=2)
+##
 ##               ([[5.00000000e-07, 1.25000000e-05, 1.66666667e-04],
 ##                 [1.25000000e-05, 3.33333333e-04, 5.00000000e-03],
 ##                 [1.66666667e-04, 5.00000000e-03, 1.00000000e-01]])
 
-measVar = 3e-5 #TODO: wild ass guess for now, take measurements later from IMU Allan plot
+measVar = 3e-5 #wild ass guess for now, took  measurements later from IMU
 kf.R = np.array([[ measVar ]])          # Variance of measurement
 kf.B = np.array([0., 0., 0.])
 
 # Utility arrays to save off Kalman state over time
-ts=[]
-xs=[]
-vxs=[]
-axs=[]
+ts=[] # time
+xs=[] # position state
+vxs=[] # velocity state
+axs=[] # acceleration state
 zs = [] # sensor output
-kgs=[]
+kgs=[] # kalman gains
 
 ay = []
 print("Calibrating...get ready")
 cal_time = 2 # seconds for calibration
+# find average at rest for bias to subtract
 for x in range(int(cal_time / dt)):
     theta = calc_accel_tilt()
     ay.append((Accel[0] / 16384 * g)) # + g * np.sin(theta)) * np.cos(theta)) # convert IMU data to g's and then m/s^2 w/gravity compensation
@@ -89,7 +94,7 @@ print("STARTING LOGGING")
 #     csvwriter.writerows(rows)
 
 g = 9.8 # m/s^2
-ma_zs = []
+ma_zs = [] # track moving-average output
 currTime = 0
 while True:
     icm20948.icm20948_Gyro_Accel_Read()
@@ -109,7 +114,7 @@ while True:
     ma_len = 5
     zs.append(ax_meas)                        # Save off sensor output
     if len(zs) > ma_len - 1:
-        ax_meas = maf(zs, ax_meas, fil_len=ma_len) # 3-point moving average to smoothen accel
+        ax_meas = maf(zs, ax_meas, fil_len=ma_len) # 5-point moving average to smoothen accel
     ma_zs.append(ax_meas) # append smoothened value
 
     ## attempted g-compensation
@@ -124,6 +129,7 @@ while True:
     # print(kf.K)
 
     # print(currTime)
+    # save data to csv file for plotting
     if currTime > 8: # 5 seconds passed, break
         # save to csv file
         axs = np.array(axs)
